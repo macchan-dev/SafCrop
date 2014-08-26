@@ -20,7 +20,6 @@ import android.widget.ImageView;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
@@ -92,6 +91,7 @@ public class MyActivity extends Activity implements View.OnClickListener {
             if (resultCode != RESULT_OK) {
                 return;
             }
+
             // filename
             Date date = new Date();
             SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmssSSS", Locale.JAPANESE);
@@ -100,82 +100,25 @@ public class MyActivity extends Activity implements View.OnClickListener {
             // save absolute path
             mCroppedFilename = file.getAbsolutePath();
 
-            // crop
-            final Intent cropIntent = new Intent("com.android.camera.action.CROP");
-
-            Uri imageData = data.getData();
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                // convert "file://" from "content://"
-                ParcelFileDescriptor parcelFileDescriptor = null;
-                FileInputStream from = null;
-                FileOutputStream to = null;
-                try {
-                    parcelFileDescriptor = getContentResolver().openFileDescriptor(imageData, "r");
-                    FileDescriptor fileDescriptor = parcelFileDescriptor.getFileDescriptor();
-                    from = new FileInputStream(fileDescriptor);
-                    File tempOutFile = new File(getExternalFilesDir(null), "crop_temp");
-                    to = new FileOutputStream(tempOutFile);
-
-                    byte[] buffer = new byte[4096]; // To hold file contents
-                    int bytes_read; // How many bytes in buffer
-                    while ((bytes_read = from.read(buffer)) != -1) {
-                        to.write(buffer, 0, bytes_read);
-                    }
-
-                    imageData = Uri.fromFile(tempOutFile);
-                } catch (FileNotFoundException e) {
-                    e.printStackTrace();
-                    return;
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    return;
-                } finally {
-                    if (to != null) {
-                        try {
-                            to.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    if (from != null) {
-                        try {
-                            from.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    if (parcelFileDescriptor != null) {
-                        try {
-                            parcelFileDescriptor.close();
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                }
+            // crop intent
+            try {
+                final Intent cropIntent = createCropIntent(getImageUri(data.getData()), Uri.fromFile(file));
+                // crop dialog.
+                new AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.crop))
+                        .setPositiveButton(
+                                "OK",
+                                new DialogInterface.OnClickListener() {
+                                    public void onClick(DialogInterface dialog, int which) {
+                                        // go to crop.
+                                        startActivityForResult(cropIntent, REQUEST_CODE_PIC_CROP);
+                                    }
+                                })
+                        .create()
+                        .show();
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-            cropIntent.setDataAndType(imageData, "image/*");
-            cropIntent.putExtra("crop", "true");
-            cropIntent.putExtra("aspectX", 1);
-            cropIntent.putExtra("aspectY", 1);
-            cropIntent.putExtra("outputX", 256);
-            cropIntent.putExtra("outputY", 256);
-            cropIntent.putExtra("scale", true);
-            // Cropped image file is saved in storage.
-            cropIntent.putExtra(MediaStore.EXTRA_OUTPUT, Uri.fromFile(file));
-            cropIntent.putExtra("outputFormat", Bitmap.CompressFormat.JPEG.name());
-
-            // crop dialog.
-            AlertDialog.Builder alertDialog = new AlertDialog.Builder(this);
-            alertDialog.setTitle(getString(R.string.crop));
-            alertDialog.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-                public void onClick(DialogInterface dialog, int which) {
-                    // go to crop.
-                    startActivityForResult(cropIntent, REQUEST_CODE_PIC_CROP);
-                }
-            });
-            alertDialog.create();
-            alertDialog.show();
         } else if (requestCode == REQUEST_CODE_PIC_CROP) {
             if (resultCode != RESULT_OK) {
                 return;
@@ -183,6 +126,58 @@ public class MyActivity extends Activity implements View.OnClickListener {
             // shome ImageView with Bitmap.
             Bitmap bitmap = BitmapFactory.decodeFile(mCroppedFilename);
             mImageView.setImageBitmap(bitmap);
+        }
+    }
+
+    private Intent createCropIntent(Uri inputData, Uri outputUri) {
+        Intent cropIntent = new Intent("com.android.camera.action.CROP");
+        cropIntent.setDataAndType(inputData, "image/*");
+        cropIntent.putExtra("crop", "true");
+        cropIntent.putExtra("aspectX", 1);
+        cropIntent.putExtra("aspectY", 1);
+        cropIntent.putExtra("outputX", 256);
+        cropIntent.putExtra("outputY", 256);
+        cropIntent.putExtra("scale", true);
+        // Cropped image file is saved in storage.
+        cropIntent.putExtra(MediaStore.EXTRA_OUTPUT, outputUri);
+        cropIntent.putExtra("outputFormat", Bitmap.CompressFormat.JPEG.name());
+
+        return cropIntent;
+    }
+
+    private Uri getImageUri(Uri data) throws IOException {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
+            return data;
+        }
+
+        // convert "file://" from "content://" for 4.4+
+        ParcelFileDescriptor parcelFileDescriptor = null;
+        FileInputStream from = null;
+        FileOutputStream to = null;
+        try {
+            parcelFileDescriptor = getContentResolver().openFileDescriptor(data, "r");
+            FileDescriptor fileDescriptor = parcelFileDescriptor.getFileDescriptor();
+            from = new FileInputStream(fileDescriptor);
+            File tempOutFile = new File(getExternalFilesDir(null), "crop_temp");
+            to = new FileOutputStream(tempOutFile);
+
+            byte[] buffer = new byte[4096]; // To hold file contents
+            int bytes_read; // How many bytes in buffer
+            while ((bytes_read = from.read(buffer)) != -1) {
+                to.write(buffer, 0, bytes_read);
+            }
+
+            return Uri.fromFile(tempOutFile);
+        } finally {
+            if (to != null) {
+                to.close();
+            }
+            if (from != null) {
+                from.close();
+            }
+            if (parcelFileDescriptor != null) {
+                parcelFileDescriptor.close();
+            }
         }
     }
 }
